@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans:beans xmlns:int="http://www.springframework.org/schema/integration"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:beans="http://www.springframework.org/schema/beans"
+	xmlns:int-stream="http://www.springframework.org/schema/integration/stream"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+		http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/integration
+		http://www.springframework.org/schema/integration/spring-integration.xsd
+		http://www.springframework.org/schema/integration/stream
+		http://www.springframework.org/schema/integration/stream/spring-integration-stream.xsd">
+
+	<!-- Declare the gateway -->
+	<int:gateway id="shop" service-interface="com.prodcod.service.Shop" />
+
+	<!-- Declare the input channel in which Orders are placed for processing -->
+	<int:channel id="ordersChannel" />
+
+<!-- 
+	<int:logging-channel-adapter log-full-message="true" id="logger"
+		level="DEBUG"/>
+
+ -->	
+	<int:logging-channel-adapter id="logger" logger-name="WIRETAP"
+		level="INFO"  expression="'payload: ' + getPayload()" />
+
+
+	<!-- each order has a collection of order items that is split apart to be 
+		processed -->
+	<int:splitter input-channel="ordersChannel" ref="orderSplitter"
+		output-channel="orderItemsChannel" />
+	<beans:bean id="orderSplitter" class="com.prodcod.service.OrderSplitter" />
+
+
+	<!-- The router sends different drink orders on different paths -->
+	<!-- <int:channel id="orderItemsChannel" /> <int:router input-channel="orderItemsChannel" 
+		expression="payload.iced ? 'coldDrinks' : 'hotDrinks'" /> -->
+
+	<int:channel id="orderItemsChannel">
+		 <!--  declare wiretap on 'orderItemsChannel' channel 	-->
+		 <!-- TODO: not currently working -->
+		<int:interceptors>
+			<int:wire-tap channel="logger"/>
+		</int:interceptors>	
+	</int:channel>
+
+	<int:router input-channel="orderItemsChannel" ref="orderRouter"
+		method="routeOrder" />
+	<beans:bean id="orderRouter" class="com.prodcod.service.OrderItemRouter" />
+
+	<int:channel id="bookItemsChannel">
+		<int:queue capacity="10" />
+	</int:channel>
+	<int:service-activator input-channel="bookItemsChannel"
+		ref="shopkeeper" method="processBooks" output-channel="processedItems" />
+
+	<int:channel id="musicItemsChannel">
+		<int:queue capacity="10" />
+	</int:channel>
+	<int:service-activator input-channel="musicItemsChannel"
+		ref="shopkeeper" method="processMusic" output-channel="processedItems" />
+
+	<int:channel id="softwareItemsChannel">
+		<int:queue capacity="10" />
+	</int:channel>
+	<int:service-activator input-channel="softwareItemsChannel"
+		ref="shopkeeper" method="processSoftware" output-channel="processedItems" />
+
+	<beans:bean id="shopkeeper" class="com.prodcod.service.Shopkeeper" />
+
+	<!-- drink order items are aggregated in a call to the waiter -->
+	<int:channel id="processedItems" />
+	<int:aggregator input-channel="processedItems" method="prepareDelivery"
+		output-channel="deliveries">
+		<beans:bean class="com.prodcod.service.OrderCompleter" />
+	</int:aggregator>
+
+	<int-stream:stdout-channel-adapter
+		id="deliveries" />
+
+
+	<int:poller id="poller" default="true" fixed-delay="1000" />
+
+
+</beans:beans>
